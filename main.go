@@ -30,10 +30,6 @@ func main() {
 			Usage: "An absolute path to an alternate Rancher compose file (default: rancher-compose.yml)",
 			Value: "rancher-compose.yml",
 		},
-		cli.StringFlag{
-			Name:  "kompose-tool-path",
-			Usage: "An absolute path to the Kompose tool",
-		},
 	}
 
 	app.Run(os.Args)
@@ -64,12 +60,8 @@ func StartTool(c *cli.Context) {
 		logrus.Fatalf("Failed parsing the compose files, error: %v", err)
 	}
 
-	if t.komposeTool != "" {
-		err := runKompose(t)
-		if err != nil {
-			logrus.Errorf("Failed running the Kompose tool to generate Kuberntes YAML files, error: %v", err)
-		}
-	}
+	runKompose(t)
+
 }
 
 func beforeApp(c *cli.Context) error {

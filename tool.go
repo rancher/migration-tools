@@ -7,10 +7,10 @@ import (
 	"reflect"
 	"strings"
 
-	"os/exec"
-
 	"fmt"
 
+	"github.com/kubernetes/kompose/pkg/app"
+	"github.com/kubernetes/kompose/pkg/kobject"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
 )
@@ -253,15 +253,15 @@ func readRancherCompose(t *ToolArgs) (*RancherComposeConfig, error) {
 	return rancherConfig, nil
 }
 
-func runKompose(t *ToolArgs) error {
+func runKompose(t *ToolArgs) {
 	logrus.Infof("---Running Kompose tool on the docker-compose.yml---")
-	e := exec.Command(t.komposeTool, "convert", "-f", t.dockerComposeFile)
-	e.Stdout = os.Stdout
-	e.Stderr = os.Stderr
-	err := e.Run()
-	if err != nil {
-		return fmt.Errorf("Error running the Kompose tool: %v", err)
+	ConvertOpt := kobject.ConvertOptions{
+		ToStdout:     false,
+		Provider:     "kubernetes",
+		GenerateYaml: true,
+		InputFiles:   []string{t.dockerComposeFile},
 	}
+
+	app.Convert(ConvertOpt)
 	logrus.Infof("---Kompose has created the Kubernetes YAML files for your 1.6 services---")
-	return nil
 }

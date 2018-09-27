@@ -15,12 +15,6 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
-const (
-	// name of the file that we will read if no alternate file is explicitly provided
-	DefaultDockerComposeFile  = "docker-compose.yml"
-	DefaultRancherComposeFile = "rancher-compose.yml"
-)
-
 type ToolArgs struct {
 	dockerComposeFile  string
 	rancherComposeFile string
@@ -42,7 +36,7 @@ type ComposeConfig struct {
 	Networks    map[string]interface{}   `yaml:"networks,omitempty"`
 }
 
-//define only those keys explicitly that we know that cannot be migrated
+//ServiceConfig - defines only those keys in docker-compose.yml explicitly that we know that cannot be migrated
 type ServiceConfig struct {
 	Image               string                 `yaml:"image,omitempty"`
 	CgroupParent        string                 `yaml:"cgroup_parent,omitempty"`
@@ -76,7 +70,7 @@ type ServiceConfig struct {
 	MemReservation      string                 `yaml:"mem_reservation,omitempty"`
 	MemSwapLimit        string                 `yaml:"memswap_limit,omitempty"`
 	MemSwappiness       string                 `yaml:"mem_swappiness,omitempty"`
-	MilliCpuReservation string                 `yaml:"milli_cpu_reservation,omitempty"`
+	MilliCPUReservation string                 `yaml:"milli_cpu_reservation,omitempty"`
 }
 
 type RancherComposeConfig struct {
@@ -84,14 +78,14 @@ type RancherComposeConfig struct {
 	ServicesMap map[string]RancherConfig `yaml:"services,omitempty"`
 }
 
-//define only those keys explicitly that we know that cannot be migrated
+//RancherConfig define only those keys in rancher-compose.yml that we know that cannot be migrated
 type RancherConfig struct {
 	LbConfig        map[string]interface{} `yaml:"lb_config"`
 	DefaultCert     string                 `yaml:"default_cert,omitempty"`
 	Certs           []string               `yaml:"certs,omitempty"`
 	Type            string                 `yaml:"type,omitempty"`
 	Scale           string                 `yaml:"scale,omitempty"`
-	RetainIp        bool                   `yaml:"retain_ip,omitempty"`
+	RetainIP        bool                   `yaml:"retain_ip,omitempty"`
 	StartOnCreate   bool                   `yaml:"start_on_create,omitempty"`
 	DrainTimeoutMs  string                 `yaml:"drain_timeout_ms,omitempty"`
 	ExternalIps     []string               `yaml:"external_ips,omitempty"`
@@ -205,7 +199,7 @@ func handleSpecialConstruct(key string, reflectedField reflect.Value) []DocConst
 			return outDoc
 		}
 		if labels != nil && len(labels) != 0 {
-			for labelKey, _ := range labels {
+			for labelKey := range labels {
 				if strings.HasPrefix(labelKey, "io.rancher.scheduler") {
 					doc := DocConstruct{
 						Name:     labelKey,
@@ -267,8 +261,7 @@ func runKompose(t *ToolArgs) error {
 	err := e.Run()
 	if err != nil {
 		return fmt.Errorf("Error running the Kompose tool: %v", err)
-	} else {
-		logrus.Infof("---Kompose has created the Kubernetes YAML files for your 1.6 services---")
 	}
+	logrus.Infof("---Kompose has created the Kubernetes YAML files for your 1.6 services---")
 	return nil
 }

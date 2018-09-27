@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/ghodss/yaml"
+	"gopkg.in/yaml.v2"
 )
 
 //try to add to this list in alphabetical order
@@ -74,7 +74,7 @@ Ports:
     name: ports
     doclink: https://rancher.com/blog/2018/2018-08-14-expose-and-monitor-workloads/
     helptext: Please add a hostPort or a nodePort to your Kubernetes workload to expose the ports used.
-RetainIp:
+RetainIP:
     name: retain_ip
 Scale: 
     name: scale

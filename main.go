@@ -97,7 +97,7 @@ func validateFlags(c *cli.Context, t *ToolArgs) {
 func validateDefaultCompose(t *ToolArgs) {
 	_, err := os.Stat(t.dockerComposeFile)
 	if err != nil {
-		logrus.Fatalf("'%s' not found: %v", DefaultDockerComposeFile, err)
+		logrus.Fatalf("'%s' not found: %v", t.dockerComposeFile, err)
 	}
 }
 

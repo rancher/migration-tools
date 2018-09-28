@@ -1,0 +1,13 @@
+version: "3"
+
+services:
+  foo:
+    labels:
+      kompose.service.type: headless
+    deploy:
+      resources:
+        limits:
+          memory: 50M
+        reservations:
+          cpus: '0.001'
+    image: redis

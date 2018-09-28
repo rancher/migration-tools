@@ -1,0 +1,46 @@
+#grab gofed from https://github.com/gofed/gofed
+#follow instructions for install
+
+#choose which version of the repo you want to build. For kompose it was 0.3.0 and the commit was 135165b39c55d29a5426479ded81eddd56bfbaf4
+
+#run the following to generate spec file:
+gofed repo2spec --detect github.com/kubernetes-incubator/kompose --commit 135165b39c55d29a5426479ded81eddd56bfbaf4 --with-extra --with-build -f
+
+
+# spec file now at:
+/home/vagrant/gofed/golang-github-kubernetes-incubator-kompose/golang-github-kubernetes-incubator-kompose.spec
+
+# go through and fix up things - see diff
+
+# generate bundled provides by copying using parsedeps.go
+# to the kompose source folder and then running `go run parsedeps.go`
+# should be done by gofed at some point - https://github.com/gofed/gofed/issues/42
+
+
+# building srpm locally on centos
+# Follow instructions to do local setup https://wiki.centos.org/HowTos/SetupRpmBuildEnvironment
+
+# source: https://wiki.centos.org/HowTos/RebuildSRPM
+# checkout the source to the release commit
+# copy the kompose code directory with name `kompose-135165b39c55d29a5426479ded81eddd56bfbaf4`
+# tar the `kompose-135165b39c55d29a5426479ded81eddd56bfbaf4` code directory as `kompose-135165b.tar.gz` and copy it to `$HOME/rpmbuild/SOURCES/`
+# run following command:
+$ rpmbuild -ba kompose.spec
+
+
+# find a srpm in `$HOME/rpmbuild/SRPMS`
+# find a RPM in `$HOME/rpmbuild/RPM/arch/`
+# see if the dependencies are proper
+
+$ rpm -qpR RPMS/x86_64/kompose-0.3.0-0.1.git135165b.el7.centos.x86_64.rpm
+
+
+# setup to run koji, ref: https://fedoraproject.org/wiki/Using_the_Koji_build_system
+$ fedora-packager-setup
+$ kinit <username>@FEDORAPROJECT.ORG
+
+
+# to build it on koji run:
+$ koji build --scratch rawhide kompose-0.3.0-0.1.git135165b.el7.centos.src.rpm
+
+

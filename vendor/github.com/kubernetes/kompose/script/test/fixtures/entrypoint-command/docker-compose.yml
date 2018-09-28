@@ -1,0 +1,9 @@
+version: '2'
+
+services:
+  base:
+    image: busybox
+    entrypoint: echo
+    command: foo
+    labels:
+      kompose.service.type: headless

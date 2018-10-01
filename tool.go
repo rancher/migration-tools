@@ -85,8 +85,8 @@ type RancherConfig struct {
 	Certs           []string               `yaml:"certs,omitempty"`
 	Type            string                 `yaml:"type,omitempty"`
 	Scale           string                 `yaml:"scale,omitempty"`
-	RetainIP        bool                   `yaml:"retain_ip,omitempty"`
-	StartOnCreate   bool                   `yaml:"start_on_create,omitempty"`
+	RetainIP        string                 `yaml:"retain_ip,omitempty"`
+	StartOnCreate   string                 `yaml:"start_on_create,omitempty"`
 	DrainTimeoutMs  string                 `yaml:"drain_timeout_ms,omitempty"`
 	ExternalIps     []string               `yaml:"external_ips,omitempty"`
 	HealthCheck     map[string]interface{} `yaml:"health_check,omitempty"`

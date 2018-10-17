@@ -54,15 +54,15 @@ type ServiceConfig struct {
 	DNSOpt              []string               `yaml:"dns_opt,omitempty"`
 	DNSSearch           []string               `yaml:"dns_search,omitempty"`
 	DrainTimeoutMs      string                 `yaml:"drain_timeout_ms,omitempty"`
-	Volumes             map[string]interface{} `yaml:"volumes,omitempty"`
+	Volumes             []string               `yaml:"volumes,omitempty"`
 	VolumesFrom         []string               `yaml:"volumes_from,omitempty"`
 	VolumeDriver        string                 `yaml:"volume_driver,omitempty"`
-	Networks            map[string]interface{} `yaml:"networks,omitempty"`
+	Networks            []string               `yaml:"networks,omitempty"`
 	NetworkMode         string                 `yaml:"network_mode,omitempty"`
 	Labels              map[string]string      `yaml:"labels,omitempty"`
 	Isolation           string                 `yaml:"isolation,omitempty"`
 	Sysctls             map[string]string      `yaml:"sysctls,omitempty"`
-	Secrets             map[string]interface{} `yaml:"secrets,omitempty"`
+	Secrets             []string               `yaml:"secrets,omitempty"`
 	SecurityOpt         []string               `yaml:"security_opt,omitempty"`
 	StopSignal          string                 `yaml:"stop_signal,omitempty"`
 	Ulimits             map[string]interface{} `yaml:"ulimits,omitempty"`

@@ -1,5 +1,12 @@
 package: github.com/rancher/migration-tools
 import:
+- package: github.com/rancher/go-rancher
+  version: 5733354a454b238e4e508422d3c0c4bbb50d7a35
+  subpackages:
+  - v2
+- package: github.com/gorilla/websocket
+  version: v1.4.0
+
 - package: github.com/kubernetes/kompose
   subpackages:
   - pkg/app

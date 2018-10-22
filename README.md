@@ -82,6 +82,8 @@ OPTIONS:
 
 ## Building
 
+`scripts/build`
+
 * Linux: Binary generated under `bin/`
   `make`
 

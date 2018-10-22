@@ -30,3 +30,5 @@ if [ -n "$CROSS" ]; then
       done
   done
 fi
+
+echo "Done building"

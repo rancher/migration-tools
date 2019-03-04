@@ -118,8 +118,8 @@ func exportTool(ctx *cli.Context) error {
 			}
 		}
 
-		// Continue if project orchestrator is nor cattle or docker-compose is empty
-		if projectMap[item.AccountId] == "-" || item.DockerCompose == "" {
+		// Continue if project orchestrator is nor cattle
+		if projectMap[item.AccountId] == "-" {
 			continue
 		}
 

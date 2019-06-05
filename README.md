@@ -82,6 +82,8 @@ OPTIONS:
 
 ## Building
 
+You can find pre-built releases on the [Releases](https://github.com/rancher/migration-tools/releases) page. 
+
 * Linux: Binary generated under `bin/`
   `make`
 
@@ -89,6 +91,8 @@ OPTIONS:
   `CROSS=1 make build`.
 
 ## Running
+
+Download from the [Releases](https://github.com/rancher/migration-tools/releases) page or build locally, then run: 
 
 `./bin/migration-tools`
 

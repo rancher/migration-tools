@@ -89,8 +89,9 @@ func TestLoadV3Ports(t *testing.T) {
 		Published: 80,
 		Protocol:  "TCP",
 	}
+	expose := []string{"80", "8080"}
 	ports := []types.ServicePortConfig{port}
-	output := loadV3Ports(ports)
+	output := loadV3Ports(ports, expose)
 	expected := kobject.Ports{
 		HostPort:      80,
 		ContainerPort: 80,
@@ -99,6 +100,16 @@ func TestLoadV3Ports(t *testing.T) {
 
 	if output[0] != expected {
 		t.Errorf("Expected %v, got %v", expected, output[0])
+	}
+
+	ep2 := kobject.Ports{
+		HostPort:      8080,
+		ContainerPort: 8080,
+		Protocol:      api.ProtocolTCP,
+	}
+
+	if output[1] != ep2 {
+		t.Errorf("Expected %v, got %v", ep2, output[1])
 	}
 
 }
@@ -169,7 +180,7 @@ func TestLoadPorts(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		result, err := loadPorts(tt.ports)
+		result, err := loadPorts(tt.ports, nil)
 		if err != nil {
 			t.Errorf("Unexpected error with loading ports %v", err)
 		}
@@ -260,7 +271,7 @@ func TestUnsupportedKeys(t *testing.T) {
 		Ports:    []string{}, // test empty array
 		Networks: &yaml.Networks{
 			Networks: []*yaml.Network{
-				&yaml.Network{
+				{
 					Name: "net1",
 				},
 			},
@@ -275,19 +286,19 @@ func TestUnsupportedKeys(t *testing.T) {
 		Ports:    []string{}, // test empty array
 		Networks: &yaml.Networks{
 			Networks: []*yaml.Network{
-				&yaml.Network{
+				{
 					Name: "net1",
 				},
 			},
 		},
 	})
 	projectWithNetworks.VolumeConfigs = map[string]*config.VolumeConfig{
-		"foo": &config.VolumeConfig{
+		"foo": {
 			Driver: "storage",
 		},
 	}
 	projectWithNetworks.NetworkConfigs = map[string]*config.NetworkConfig{
-		"foo": &config.NetworkConfig{
+		"foo": {
 			Driver: "bridge",
 		},
 	}
@@ -304,7 +315,7 @@ func TestUnsupportedKeys(t *testing.T) {
 	projectWithDefaultNetwork.ServiceConfigs.Add("foo", &config.ServiceConfig{
 		Networks: &yaml.Networks{
 			Networks: []*yaml.Network{
-				&yaml.Network{
+				{
 					Name: "default",
 				},
 			},
@@ -318,11 +329,8 @@ func TestUnsupportedKeys(t *testing.T) {
 	}{
 		"With Networks (service and root level)": {
 			projectWithNetworks,
-			[]string{"root level networks", "root level volumes", "networks"},
-		},
-		"Empty Networks on Service level": {
-			projectWithEmptyNetwork,
-			[]string{"networks"},
+			//root level network and network are now supported"
+			[]string{"root level volumes"},
 		},
 		"Default root level Network": {
 			projectWithDefaultNetwork,
@@ -359,6 +367,29 @@ func TestNormalizeServiceNames(t *testing.T) {
 	}
 }
 
+func TestNormalizeNetworkNames(t *testing.T) {
+	testCases := []struct {
+		composeNetworkName    string
+		normalizedNetworkName string
+	}{
+		{"foo_bar", "foobar"},
+		{"foo", "foo"},
+		{"FOO", "foo"},
+		{"foo.bar", "foo.bar"},
+		//{"", ""},
+	}
+
+	for _, testCase := range testCases {
+		returnValue, err := normalizeNetworkNames(testCase.composeNetworkName)
+		if err != nil {
+			t.Log("Unxpected error, got ", err)
+		}
+		if returnValue != testCase.normalizedNetworkName {
+			t.Logf("Expected %q, got %q", testCase.normalizedNetworkName, returnValue)
+		}
+	}
+}
+
 func TestCheckLabelsPorts(t *testing.T) {
 	testCases := []struct {
 		name        string
@@ -386,7 +417,10 @@ func TestCheckLabelsPorts(t *testing.T) {
 func TestCheckPlacementCustomLabels(t *testing.T) {
 
 	placement := types.Placement{
-		Constraints: []string{"node.labels.something == anything"},
+		Constraints: []string{
+			"node.labels.something == anything",
+			"node.labels.monitor != xxx",
+		},
 	}
 	output := loadV3Placement(placement.Constraints)
 

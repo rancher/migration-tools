@@ -18,13 +18,12 @@ package compose
 
 import (
 	"fmt"
+	"github.com/spf13/cast"
 	"net"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-
-	"k8s.io/kubernetes/pkg/api"
 
 	"github.com/docker/libcompose/config"
 	"github.com/docker/libcompose/lookup"
@@ -33,6 +32,7 @@ import (
 	"github.com/kubernetes/kompose/pkg/transformer"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
+	"k8s.io/kubernetes/pkg/api"
 )
 
 // Parse Docker Compose with libcompose (only supports v1 and v2). Eventually we will
@@ -84,9 +84,11 @@ func parseV1V2(files []string) (kobject.KomposeObject, error) {
 }
 
 // Load ports from compose file
-func loadPorts(composePorts []string) ([]kobject.Ports, error) {
+// also load `expose` here
+func loadPorts(composePorts []string, expose []string) ([]kobject.Ports, error) {
 	ports := []kobject.Ports{}
 	character := ":"
+	exist := map[string]bool{}
 
 	// For each port listed
 	for _, port := range composePorts {
@@ -175,6 +177,32 @@ func loadPorts(composePorts []string) ([]kobject.Ports, error) {
 		}
 
 	}
+
+	// load remain expose ports
+	for _, port := range ports {
+		// must use cast...
+		exist[cast.ToString(port.ContainerPort)+string(port.Protocol)] = true
+	}
+
+	if expose != nil {
+		for _, port := range expose {
+			portValue := port
+			protocol := api.ProtocolTCP
+			if strings.Contains(portValue, "/") {
+				splits := strings.Split(port, "/")
+				portValue = splits[0]
+				protocol = api.Protocol(strings.ToUpper(splits[1]))
+			}
+
+			if !exist[portValue+string(protocol)] {
+				ports = append(ports, kobject.Ports{
+					ContainerPort: cast.ToInt32(portValue),
+					Protocol:      protocol,
+				})
+			}
+		}
+	}
+
 	return ports, nil
 }
 
@@ -193,7 +221,7 @@ func libComposeToKomposeMapping(composeObject *project.Project) (kobject.Kompose
 		serviceConfig := kobject.ServiceConfig{}
 		serviceConfig.Image = composeServiceConfig.Image
 		serviceConfig.Build = composeServiceConfig.Build.Context
-		newName := normalizeServiceNames(composeServiceConfig.ContainerName)
+		newName := normalizeContainerNames(composeServiceConfig.ContainerName)
 		serviceConfig.ContainerName = newName
 		if newName != composeServiceConfig.ContainerName {
 			log.Infof("Container name in service %q has been changed from %q to %q", name, composeServiceConfig.ContainerName, newName)
@@ -204,6 +232,7 @@ func libComposeToKomposeMapping(composeObject *project.Project) (kobject.Kompose
 		serviceConfig.Args = composeServiceConfig.Command
 		serviceConfig.Dockerfile = composeServiceConfig.Build.Dockerfile
 		serviceConfig.BuildArgs = composeServiceConfig.Build.Args
+		serviceConfig.Expose = composeServiceConfig.Expose
 
 		envs := loadEnvVars(composeServiceConfig.Environment)
 		serviceConfig.Environment = envs
@@ -213,8 +242,8 @@ func libComposeToKomposeMapping(composeObject *project.Project) (kobject.Kompose
 			log.Fatalf("%q defined in service %q is an absolute path, it must be a relative path.", serviceConfig.Dockerfile, name)
 		}
 
-		// load ports
-		ports, err := loadPorts(composeServiceConfig.Ports)
+		// load ports, same as v3, we also load `expose`
+		ports, err := loadPorts(composeServiceConfig.Ports, serviceConfig.Expose)
 		if err != nil {
 			return kobject.KomposeObject{}, errors.Wrap(err, "loadPorts failed. "+name+" failed to load ports from compose file")
 		}
@@ -224,7 +253,7 @@ func libComposeToKomposeMapping(composeObject *project.Project) (kobject.Kompose
 
 		if composeServiceConfig.Volumes != nil {
 			for _, volume := range composeServiceConfig.Volumes.Volumes {
-				v := normalizeServiceNames(volume.String())
+				v := volume.String()
 				serviceConfig.VolList = append(serviceConfig.VolList, v)
 			}
 		}
@@ -232,27 +261,10 @@ func libComposeToKomposeMapping(composeObject *project.Project) (kobject.Kompose
 		// canonical "Custom Labels" handler
 		// Labels used to influence conversion of kompose will be handled
 		// from here for docker-compose. Each loader will have such handler.
-		serviceConfig.Labels = make(map[string]string)
-		for key, value := range composeServiceConfig.Labels {
-			switch key {
-			case LabelServiceType:
-				serviceType, err := handleServiceType(value)
-				if err != nil {
-					return kobject.KomposeObject{}, errors.Wrap(err, "handleServiceType failed")
-				}
+		if err := parseKomposeLabels(composeServiceConfig.Labels, &serviceConfig); err != nil {
+			return kobject.KomposeObject{}, err
+		}
 
-				serviceConfig.ServiceType = serviceType
-			case LabelServiceExpose:
-				serviceConfig.ExposeService = strings.ToLower(value)
-			case LabelServiceExposeTLSSecret:
-				serviceConfig.ExposeServiceTLS = value
-			default:
-				serviceConfig.Labels[key] = value
-			}
-		}
-		if serviceConfig.ExposeService == "" && serviceConfig.ExposeServiceTLS != "" {
-			return kobject.KomposeObject{}, errors.New("kompose.service.expose.tls-secret was specified without kompose.service.expose")
-		}
 		err = checkLabelsPorts(len(serviceConfig.Port), composeServiceConfig.Labels[LabelServiceType], name)
 		if err != nil {
 			return kobject.KomposeObject{}, errors.Wrap(err, "kompose.service.type can't be set if service doesn't expose any ports.")
@@ -264,7 +276,7 @@ func libComposeToKomposeMapping(composeObject *project.Project) (kobject.Kompose
 		serviceConfig.CapAdd = composeServiceConfig.CapAdd
 		serviceConfig.CapDrop = composeServiceConfig.CapDrop
 		serviceConfig.Pid = composeServiceConfig.Pid
-		serviceConfig.Expose = composeServiceConfig.Expose
+
 		serviceConfig.Privileged = composeServiceConfig.Privileged
 		serviceConfig.Restart = composeServiceConfig.Restart
 		serviceConfig.User = composeServiceConfig.User
@@ -275,6 +287,15 @@ func libComposeToKomposeMapping(composeObject *project.Project) (kobject.Kompose
 		serviceConfig.TmpFs = composeServiceConfig.Tmpfs
 		serviceConfig.StopGracePeriod = composeServiceConfig.StopGracePeriod
 
+		if composeServiceConfig.Networks != nil {
+			if len(composeServiceConfig.Networks.Networks) > 0 {
+				for _, value := range composeServiceConfig.Networks.Networks {
+					if value.Name != "default" {
+						serviceConfig.Network = append(serviceConfig.Network, value.RealName)
+					}
+				}
+			}
+		}
 		// Get GroupAdd, group should be mentioned in gid format but not the group name
 		groupAdd, err := getGroupAdd(composeServiceConfig.GroupAdd)
 		if err != nil {
@@ -330,7 +351,7 @@ func retrieveVolume(svcName string, komposeObject kobject.KomposeObject) (volume
 			var cVols []kobject.Volumes
 			cVols, err = ParseVols(komposeObject.ServiceConfigs[svcName].VolList, svcName)
 			if err != nil {
-				return nil, errors.Wrapf(err, "error generting current volumes")
+				return nil, errors.Wrapf(err, "error generating current volumes")
 			}
 
 			for _, cv := range cVols {
@@ -364,7 +385,7 @@ func retrieveVolume(svcName string, komposeObject kobject.KomposeObject) (volume
 		// if `volumes-from` is not present
 		volume, err = ParseVols(komposeObject.ServiceConfigs[svcName].VolList, svcName)
 		if err != nil {
-			return nil, errors.Wrapf(err, "error generting current volumes")
+			return nil, errors.Wrapf(err, "error generating current volumes")
 		}
 	}
 	return
@@ -392,11 +413,13 @@ func ParseVols(volNames []string, svcName string) ([]kobject.Volumes, error) {
 		if err != nil {
 			return nil, errors.Wrapf(err, "could not parse volume %q: %v", vn, err)
 		}
+		v.VolumeName = normalizeVolumes(v.VolumeName)
 		v.SvcName = svcName
 		v.MountPath = fmt.Sprintf("%s:%s", v.Host, v.Container)
 		v.PVCName = fmt.Sprintf("%s-claim%d", v.SvcName, i)
 		volumes = append(volumes, v)
 	}
+
 	return volumes, nil
 }
 

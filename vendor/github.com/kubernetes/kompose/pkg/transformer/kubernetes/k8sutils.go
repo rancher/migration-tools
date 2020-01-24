@@ -30,11 +30,11 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/ghodss/yaml"
 	"github.com/joho/godotenv"
 	"github.com/kubernetes/kompose/pkg/kobject"
 	"github.com/kubernetes/kompose/pkg/transformer"
 	log "github.com/sirupsen/logrus"
+	"gopkg.in/yaml.v3"
 
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/unversioned"
@@ -88,6 +88,7 @@ func generateHelm(dirName string) error {
 	chart := `name: {{.Name}}
 description: A generated Helm Chart for {{.Name}} from Skippbox Kompose
 version: 0.0.1
+apiVersion: v1
 keywords:
   - {{.Name}}
 sources:
@@ -193,7 +194,7 @@ func PrintList(objects []runtime.Object, opt kobject.ConvertOptions) error {
 		if err != nil {
 			return err
 		}
-		data, err := marshal(convertedList, opt.GenerateJSON)
+		data, err := marshal(convertedList, opt.GenerateJSON, opt.YAMLIndent)
 		if err != nil {
 			return fmt.Errorf("error in marshalling the List: %v", err)
 		}
@@ -219,19 +220,33 @@ func PrintList(objects []runtime.Object, opt kobject.ConvertOptions) error {
 			if err != nil {
 				return err
 			}
-			data, err := marshal(versionedObject, opt.GenerateJSON)
+			data, err := marshal(versionedObject, opt.GenerateJSON, opt.YAMLIndent)
 			if err != nil {
 				return err
 			}
 
-			val := reflect.ValueOf(v).Elem()
-			// Use reflect to access TypeMeta struct inside runtime.Object.
-			// cast it to correct type - unversioned.TypeMeta
-			typeMeta := val.FieldByName("TypeMeta").Interface().(unversioned.TypeMeta)
+			var typeMeta unversioned.TypeMeta
+			var objectMeta api.ObjectMeta
 
-			// Use reflect to access ObjectMeta struct inside runtime.Object.
-			// cast it to correct type - api.ObjectMeta
-			objectMeta := val.FieldByName("ObjectMeta").Interface().(api.ObjectMeta)
+			if us, ok := v.(*runtime.Unstructured); ok {
+				typeMeta = unversioned.TypeMeta{
+					Kind:       us.GetKind(),
+					APIVersion: us.GetAPIVersion(),
+				}
+				objectMeta = api.ObjectMeta{
+					Name: us.GetName(),
+				}
+			} else {
+				val := reflect.ValueOf(v).Elem()
+				// Use reflect to access TypeMeta struct inside runtime.Object.
+				// cast it to correct type - unversioned.TypeMeta
+				typeMeta = val.FieldByName("TypeMeta").Interface().(unversioned.TypeMeta)
+
+				// Use reflect to access ObjectMeta struct inside runtime.Object.
+				// cast it to correct type - api.ObjectMeta
+				objectMeta = val.FieldByName("ObjectMeta").Interface().(api.ObjectMeta)
+
+			}
 
 			file, err = transformer.Print(objectMeta.Name, finalDirName, strings.ToLower(typeMeta.Kind), data, opt.ToStdout, opt.GenerateJSON, f, opt.Provider)
 			if err != nil {
@@ -251,12 +266,12 @@ func PrintList(objects []runtime.Object, opt kobject.ConvertOptions) error {
 }
 
 // marshal object runtime.Object and return byte array
-func marshal(obj runtime.Object, jsonFormat bool) (data []byte, err error) {
+func marshal(obj runtime.Object, jsonFormat bool, indent int) (data []byte, err error) {
 	// convert data to yaml or json
 	if jsonFormat {
 		data, err = json.MarshalIndent(obj, "", "  ")
 	} else {
-		data, err = yaml.Marshal(obj)
+		data, err = marshalWithIndent(obj, indent)
 	}
 	if err != nil {
 		data = nil
@@ -264,9 +279,54 @@ func marshal(obj runtime.Object, jsonFormat bool) (data []byte, err error) {
 	return
 }
 
+// Convert JSON to YAML.
+func jsonToYaml(j []byte, spaces int) ([]byte, error) {
+	// Convert the JSON to an object.
+	var jsonObj interface{}
+	// We are using yaml.Unmarshal here (instead of json.Unmarshal) because the
+	// Go JSON library doesn't try to pick the right number type (int, float,
+	// etc.) when unmarshling to interface{}, it just picks float64
+	// universally. go-yaml does go through the effort of picking the right
+	// number type, so we can preserve number type throughout this process.
+	err := yaml.Unmarshal(j, &jsonObj)
+	if err != nil {
+		return nil, err
+	}
+
+	var b bytes.Buffer
+	encoder := yaml.NewEncoder(&b)
+	encoder.SetIndent(spaces)
+	if err := encoder.Encode(jsonObj); err != nil {
+		return nil, err
+	}
+	return b.Bytes(), nil
+
+	// Marshal this object into YAML.
+	// return yaml.Marshal(jsonObj)
+}
+
+func marshalWithIndent(o interface{}, indent int) ([]byte, error) {
+	j, err := json.Marshal(o)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling into JSON: %s", err.Error())
+	}
+
+	y, err := jsonToYaml(j, indent)
+	if err != nil {
+		return nil, fmt.Errorf("error converting JSON to YAML: %s", err.Error())
+	}
+
+	return y, nil
+}
+
 // Convert object to versioned object
 // if groupVersion is  empty (unversioned.GroupVersion{}), use version from original object (obj)
 func convertToVersion(obj runtime.Object, groupVersion unversioned.GroupVersion) (runtime.Object, error) {
+
+	// ignore unstruct object
+	if _, ok := obj.(*runtime.Unstructured); ok {
+		return obj, nil
+	}
 
 	var version unversioned.GroupVersion
 
@@ -345,7 +405,7 @@ func (k *Kubernetes) UpdateKubernetesObjects(name string, service kobject.Servic
 	}
 
 	// Configure the container volumes.
-	volumesMount, volumes, pvc, err := k.ConfigVolumes(name, service)
+	volumesMount, volumes, pvc, cms, err := k.ConfigVolumes(name, service)
 	if err != nil {
 		return errors.Wrap(err, "k.ConfigVolumes failed")
 	}
@@ -368,6 +428,12 @@ func (k *Kubernetes) UpdateKubernetesObjects(name string, service kobject.Servic
 		}
 	}
 
+	if cms != nil {
+		for _, c := range cms {
+			*objects = append(*objects, c)
+		}
+	}
+
 	// Configure the container ports.
 	ports := k.ConfigPorts(name, service)
 
@@ -380,16 +446,16 @@ func (k *Kubernetes) UpdateKubernetesObjects(name string, service kobject.Servic
 	// fillTemplate fills the pod template with the value calculated from config
 	fillTemplate := func(template *api.PodTemplateSpec) error {
 		if len(service.ContainerName) > 0 {
-			template.Spec.Containers[0].Name = service.ContainerName
+			template.Spec.Containers[0].Name = FormatContainerName(service.ContainerName)
 		}
 		template.Spec.Containers[0].Env = envs
 		template.Spec.Containers[0].Command = service.Command
 		template.Spec.Containers[0].Args = service.Args
 		template.Spec.Containers[0].WorkingDir = service.WorkingDir
-		template.Spec.Containers[0].VolumeMounts = volumesMount
+		template.Spec.Containers[0].VolumeMounts = append(template.Spec.Containers[0].VolumeMounts, volumesMount...)
 		template.Spec.Containers[0].Stdin = service.Stdin
 		template.Spec.Containers[0].TTY = service.Tty
-		template.Spec.Volumes = volumes
+		template.Spec.Volumes = append(template.Spec.Volumes, volumes...)
 		template.Spec.NodeSelector = service.Placement
 		// Configure the HealthCheck
 		// We check to see if it's blank
@@ -425,38 +491,9 @@ func (k *Kubernetes) UpdateKubernetesObjects(name string, service kobject.Servic
 			}
 		}
 
-		// Configure the resource limits
-		if service.MemLimit != 0 || service.CPULimit != 0 {
-			resourceLimit := api.ResourceList{}
-
-			if service.MemLimit != 0 {
-				resourceLimit[api.ResourceMemory] = *resource.NewQuantity(int64(service.MemLimit), "RandomStringForFormat")
-			}
-
-			if service.CPULimit != 0 {
-				resourceLimit[api.ResourceCPU] = *resource.NewMilliQuantity(service.CPULimit, resource.DecimalSI)
-			}
-
-			template.Spec.Containers[0].Resources.Limits = resourceLimit
-		}
-
-		// Configure the resource requests
-		if service.MemReservation != 0 || service.CPUReservation != 0 {
-			resourceRequests := api.ResourceList{}
-
-			if service.MemReservation != 0 {
-				resourceRequests[api.ResourceMemory] = *resource.NewQuantity(int64(service.MemReservation), "RandomStringForFormat")
-			}
-
-			if service.CPUReservation != 0 {
-				resourceRequests[api.ResourceCPU] = *resource.NewMilliQuantity(service.CPUReservation, resource.DecimalSI)
-			}
-
-			template.Spec.Containers[0].Resources.Requests = resourceRequests
-		}
+		TranslatePodResource(&service, template)
 
 		// Configure resource reservations
-
 		podSecurityContext := &api.PodSecurityContext{}
 
 		//set pid namespace mode
@@ -501,18 +538,20 @@ func (k *Kubernetes) UpdateKubernetesObjects(name string, service kobject.Servic
 			template.Spec.SecurityContext = podSecurityContext
 		}
 		template.Spec.Containers[0].Ports = ports
-		template.ObjectMeta.Labels = transformer.ConfigLabels(name)
+		template.ObjectMeta.Labels = transformer.ConfigLabelsWithNetwork(name, service.Network)
+
+		// Configure the image pull policy
+		if policy, err := GetImagePullPolicy(name, service.ImagePullPolicy); err != nil {
+			return err
+		} else {
+			template.Spec.Containers[0].ImagePullPolicy = policy
+		}
 
 		// Configure the container restart policy.
-		switch service.Restart {
-		case "", "always", "any":
-			template.Spec.RestartPolicy = api.RestartPolicyAlways
-		case "no", "none":
-			template.Spec.RestartPolicy = api.RestartPolicyNever
-		case "on-failure":
-			template.Spec.RestartPolicy = api.RestartPolicyOnFailure
-		default:
-			return errors.New("Unknown restart policy " + service.Restart + " for service " + name)
+		if restart, err := GetRestartPolicy(name, service.Restart); err != nil {
+			return err
+		} else {
+			template.Spec.RestartPolicy = restart
 		}
 
 		// Configure hostname/domain_name settings
@@ -549,6 +588,73 @@ func (k *Kubernetes) UpdateKubernetesObjects(name string, service kobject.Servic
 	return nil
 }
 
+// TranslatePodResource config pod resources
+func TranslatePodResource(service *kobject.ServiceConfig, template *api.PodTemplateSpec) {
+	// Configure the resource limits
+	if service.MemLimit != 0 || service.CPULimit != 0 {
+		resourceLimit := api.ResourceList{}
+
+		if service.MemLimit != 0 {
+			resourceLimit[api.ResourceMemory] = *resource.NewQuantity(int64(service.MemLimit), "RandomStringForFormat")
+		}
+
+		if service.CPULimit != 0 {
+			resourceLimit[api.ResourceCPU] = *resource.NewMilliQuantity(service.CPULimit, resource.DecimalSI)
+		}
+
+		template.Spec.Containers[0].Resources.Limits = resourceLimit
+	}
+
+	// Configure the resource requests
+	if service.MemReservation != 0 || service.CPUReservation != 0 {
+		resourceRequests := api.ResourceList{}
+
+		if service.MemReservation != 0 {
+			resourceRequests[api.ResourceMemory] = *resource.NewQuantity(int64(service.MemReservation), "RandomStringForFormat")
+		}
+
+		if service.CPUReservation != 0 {
+			resourceRequests[api.ResourceCPU] = *resource.NewMilliQuantity(service.CPUReservation, resource.DecimalSI)
+		}
+
+		template.Spec.Containers[0].Resources.Requests = resourceRequests
+	}
+
+	return
+
+}
+
+// GetImagePullPolicy get image pull settings
+func GetImagePullPolicy(name, policy string) (api.PullPolicy, error) {
+	switch policy {
+	case "":
+	case "Always":
+		return api.PullAlways, nil
+	case "Never":
+		return api.PullNever, nil
+	case "IfNotPresent":
+		return api.PullIfNotPresent, nil
+	default:
+		return "", errors.New("Unknown image-pull-policy " + policy + " for service " + name)
+	}
+	return "", nil
+
+}
+
+// GetRestartPolicy ...
+func GetRestartPolicy(name, restart string) (api.RestartPolicy, error) {
+	switch restart {
+	case "", "always", "any":
+		return api.RestartPolicyAlways, nil
+	case "no", "none":
+		return api.RestartPolicyNever, nil
+	case "on-failure":
+		return api.RestartPolicyOnFailure, nil
+	default:
+		return "", errors.New("Unknown restart policy " + restart + " for service " + name)
+	}
+}
+
 // SortServicesFirst - the objects that we get can be in any order this keeps services first
 // according to best practice kubernetes services should be created first
 // http://kubernetes.io/docs/user-guide/config-best-practices/
@@ -565,6 +671,63 @@ func (k *Kubernetes) SortServicesFirst(objs *[]runtime.Object) {
 	ret = append(ret, svc...)
 	ret = append(ret, others...)
 	*objs = ret
+}
+
+// RemoveDupObjects remove objects that are dups...eg. configmaps from env.
+// since we know for sure that the duplication can only happends on ConfigMap, so
+// this code will looks like this for now.
+func (k *Kubernetes) RemoveDupObjects(objs *[]runtime.Object) {
+	var result []runtime.Object
+	exist := map[string]bool{}
+	for _, obj := range *objs {
+		if us, ok := obj.(*api.ConfigMap); ok {
+			k := us.GroupVersionKind().String() + us.GetNamespace() + us.GetName()
+			if exist[k] {
+				log.Debugf("Remove duplicate configmap: %s", us.GetName())
+				continue
+			} else {
+				result = append(result, obj)
+				exist[k] = true
+			}
+		} else {
+			result = append(result, obj)
+		}
+
+	}
+	*objs = result
+}
+
+func resetWorkloadAPIVersion(d runtime.Object) runtime.Object {
+	data, err := json.Marshal(d)
+	if err == nil {
+		var us runtime.Unstructured
+		if err := json.Unmarshal(data, &us); err == nil {
+			us.SetGroupVersionKind(unversioned.GroupVersionKind{
+				Group:   "apps",
+				Version: "v1",
+				Kind:    d.GetObjectKind().GroupVersionKind().Kind,
+			})
+			return &us
+		}
+	}
+	return d
+}
+
+// FixWorkloadVersion force reset deployment/daemonset's apiversion to apps/v1
+func (k *Kubernetes) FixWorkloadVersion(objs *[]runtime.Object) {
+	var result []runtime.Object
+	for _, obj := range *objs {
+		if d, ok := obj.(*extensions.Deployment); ok {
+			nd := resetWorkloadAPIVersion(d)
+			result = append(result, nd)
+		} else if d, ok := obj.(*extensions.DaemonSet); ok {
+			nd := resetWorkloadAPIVersion(d)
+			result = append(result, nd)
+		} else {
+			result = append(result, obj)
+		}
+	}
+	*objs = result
 }
 
 // SortedKeys Ensure the kubernetes objects are in a consistent order
@@ -608,10 +771,37 @@ func GetEnvsFromFile(file string, opt kobject.ConvertOptions) (map[string]string
 	return envLoad, nil
 }
 
+// GetContentFromFile gets the content from the file..
+func GetContentFromFile(file string) (string, error) {
+	fileBytes, err := ioutil.ReadFile(file)
+	if err != nil {
+		return "", errors.Wrap(err, "Unable to read file")
+	}
+	return string(fileBytes), nil
+}
+
 // FormatEnvName format env name
 func FormatEnvName(name string) string {
 	envName := strings.Trim(name, "./")
 	envName = strings.Replace(envName, ".", "-", -1)
 	envName = strings.Replace(envName, "/", "-", -1)
 	return envName
+}
+
+// FormatFileName format file name
+func FormatFileName(name string) string {
+	// Split the filepath name so that we use the
+	// file name (after the base) for ConfigMap,
+	// it shouldn't matter whether it has special characters or not
+	_, file := path.Split(name)
+
+	// Make it DNS-1123 compliant for Kubernetes
+	return strings.Replace(file, "_", "-", -1)
+}
+
+//FormatContainerName format Container name
+func FormatContainerName(name string) string {
+	name = strings.Replace(name, "_", "-", -1)
+	return name
+
 }

@@ -1,0 +1,129 @@
+{
+  "kind": "List",
+  "apiVersion": "v1",
+  "metadata": {},
+  "items": [
+    {
+      "kind": "Service",
+      "apiVersion": "v1",
+      "metadata": {
+        "name": "helloworld",
+        "creationTimestamp": null,
+        "labels": {
+          "io.kompose.service": "helloworld"
+        },
+        "annotations": {
+          "kompose.cmd": "%CMD%",
+          "kompose.version": "%VERSION%"
+        }
+      },
+      "spec": {
+        "ports": [
+          {
+            "name": "80",
+            "port": 80,
+            "targetPort": 80
+          },
+          {
+            "name": "3000",
+            "port": 3000,
+            "targetPort": 3000
+          }
+        ],
+        "selector": {
+          "io.kompose.service": "helloworld"
+        }
+      },
+      "status": {
+        "loadBalancer": {}
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "annotations": {
+          "kompose.cmd": "%CMD%",
+          "kompose.version": "%VERSION%"
+        },
+        "creationTimestamp": null,
+        "labels": {
+          "io.kompose.service": "helloworld"
+        },
+        "name": "helloworld"
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "io.kompose.service": "helloworld"
+          }
+        },
+        "strategy": {},
+        "template": {
+          "metadata": {
+            "annotations": {
+              "kompose.cmd": "%CMD%",
+              "kompose.version": "%VERSION%"
+            },
+            "creationTimestamp": null,
+            "labels": {
+              "io.kompose.network/helloworld-network": "true",
+              "io.kompose.service": "helloworld"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "image": "tutum/hello-world",
+                "imagePullPolicy": "",
+                "name": "helloworld",
+                "ports": [
+                  {
+                    "containerPort": 80
+                  },
+                  {
+                    "containerPort": 3000
+                  }
+                ],
+                "resources": {}
+              }
+            ],
+            "restartPolicy": "Always",
+            "serviceAccountName": "",
+            "volumes": null
+          }
+        }
+      },
+      "status": {}
+    },
+    {
+      "kind": "NetworkPolicy",
+      "apiVersion": "extensions/v1beta1",
+      "metadata": {
+        "name": "helloworld-network",
+        "creationTimestamp": null
+      },
+      "spec": {
+        "podSelector": {
+          "matchLabels": {
+            "io.kompose.network/helloworld-network": "true"
+          }
+        },
+        "ingress": [
+          {
+            "from": [
+              {
+                "podSelector": {
+                  "matchLabels": {
+                    "io.kompose.network/helloworld-network": "true"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -74,6 +74,9 @@ var unsupportedKey = map[string]bool{}
 
 // initImageStream initializes ImageStream object
 func (o *OpenShift) initImageStream(name string, service kobject.ServiceConfig, opt kobject.ConvertOptions) *imageapi.ImageStream {
+	if service.Image == "" {
+		service.Image = name
+	}
 
 	// Retrieve tags and image name for mapping
 	tag := GetImageTag(service.Image)
@@ -183,6 +186,13 @@ func (o *OpenShift) initDeploymentConfig(name string, service kobject.ServiceCon
 		containerName = []string{service.ContainerName}
 	}
 
+	var podSpec kapi.PodSpec
+	if len(service.Configs) > 0 {
+		podSpec = o.InitPodSpecWithConfigMap(name, " ", service)
+	} else {
+		podSpec = o.InitPodSpec(name, " ", "")
+	}
+
 	dc := &deployapi.DeploymentConfig{
 		TypeMeta: unversioned.TypeMeta{
 			Kind:       "DeploymentConfig",
@@ -200,7 +210,7 @@ func (o *OpenShift) initDeploymentConfig(name string, service kobject.ServiceCon
 				ObjectMeta: kapi.ObjectMeta{
 					Labels: transformer.ConfigLabels(name),
 				},
-				Spec: o.InitPodSpec(name, " "),
+				Spec: podSpec,
 			},
 			Triggers: []deployapi.DeploymentTriggerPolicy{
 				// Trigger new deploy when DeploymentConfig is created (config change)
@@ -222,6 +232,16 @@ func (o *OpenShift) initDeploymentConfig(name string, service kobject.ServiceCon
 			},
 		},
 	}
+
+	update := service.GetOSUpdateStrategy()
+	if update != nil {
+		dc.Spec.Strategy = deployapi.DeploymentStrategy{
+			Type:          deployapi.DeploymentStrategyTypeRolling,
+			RollingParams: update,
+		}
+		log.Debugf("Set deployment '%s' rolling update: MaxSurge: %s, MaxUnavailable: %s", name, update.MaxSurge.String(), update.MaxUnavailable.String())
+	}
+
 	return dc
 }
 
@@ -268,6 +288,16 @@ func (o *OpenShift) Transform(komposeObject kobject.KomposeObject, opt kobject.C
 	buildRepo := opt.BuildRepo
 	buildBranch := opt.BuildBranch
 
+	if komposeObject.Secrets != nil {
+		secrets, err := o.CreateSecrets(komposeObject)
+		if err != nil {
+			return nil, errors.Wrapf(err, "create secrets error")
+		}
+		for _, item := range secrets {
+			allobjects = append(allobjects, item)
+		}
+	}
+
 	sortedKeys := kubernetes.SortedKeys(komposeObject)
 	for _, name := range sortedKeys {
 		service := komposeObject.ServiceConfigs[name]
@@ -292,33 +322,29 @@ func (o *OpenShift) Transform(komposeObject kobject.KomposeObject, opt kobject.C
 		// Lastly, we must have an Image name to continue
 		if opt.Build == "local" && opt.InputFiles != nil && service.Build != "" {
 
+			// If there's no "image" key, use the name of the container that's built
+			if service.Image == "" {
+				service.Image = name
+			}
+
 			if service.Image == "" {
 				return nil, fmt.Errorf("image key required within build parameters in order to build and push service '%s'", name)
 			}
 
-			// Get the directory where the compose file is
-			composeFileDir, err := transformer.GetComposeFileDir(opt.InputFiles)
-			if err != nil {
-				return nil, err
-			}
-
 			// Build the container!
-			err = transformer.BuildDockerImage(service, name, composeFileDir)
+			err := transformer.BuildDockerImage(service, name)
 			if err != nil {
 				log.Fatalf("Unable to build Docker container for service %v: %v", name, err)
 			}
 
 			// Push the built container to the repo!
-			err = transformer.PushDockerImage(service, name)
-			if err != nil {
-				log.Fatalf("Unable to push Docker image for service %v: %v", name, err)
+			if opt.PushImage {
+				err = transformer.PushDockerImage(service, name)
+				if err != nil {
+					log.Fatalf("Unable to push Docker image for service %v: %v", name, err)
+				}
 			}
 
-		}
-
-		// If there's no "image" key, use the name of the container that's built
-		if service.Image == "" {
-			service.Image = name
 		}
 
 		// Generate pod only and nothing more
@@ -345,7 +371,7 @@ func (o *OpenShift) Transform(komposeObject kobject.KomposeObject, opt kobject.C
 				// Get the compose file directory
 				composeFileDir, err = transformer.GetComposeFileDir(opt.InputFiles)
 				if err != nil {
-					log.Warningf("Error in detecting compose file's directory.")
+					log.Warningf("Error %v in detecting compose file's directory.", err)
 					continue
 				}
 
@@ -408,6 +434,8 @@ func (o *OpenShift) Transform(komposeObject kobject.KomposeObject, opt kobject.C
 
 	// sort all object so Services are first
 	o.SortServicesFirst(&allobjects)
+	o.RemoveDupObjects(&allobjects)
+	o.FixWorkloadVersion(&allobjects)
 
 	return allobjects, nil
 }

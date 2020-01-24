@@ -36,24 +36,35 @@
       }
     },
     {
+      "apiVersion": "apps/v1",
       "kind": "Deployment",
-      "apiVersion": "extensions/v1beta1",
       "metadata": {
-        "name": "redis",
-        "creationTimestamp": null,
-        "labels": {
-          "io.kompose.service": "redis"
-        },
         "annotations": {
           "kompose.cmd": "%CMD%",
           "kompose.service.type": "nodeport",
           "kompose.version": "%VERSION%"
-        }
+        },
+        "creationTimestamp": null,
+        "labels": {
+          "io.kompose.service": "redis"
+        },
+        "name": "redis"
       },
       "spec": {
         "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "io.kompose.service": "redis"
+          }
+        },
+        "strategy": {},
         "template": {
           "metadata": {
+            "annotations": {
+              "kompose.cmd": "%CMD%",
+              "kompose.service.type": "nodeport",
+              "kompose.version": "%VERSION%"
+            },
             "creationTimestamp": null,
             "labels": {
               "io.kompose.service": "redis"
@@ -62,20 +73,13 @@
           "spec": {
             "containers": [
               {
-                "name": "redis",
-                "image": "bitnami/redis:latest",
-                "ports": [
-                  {
-                    "containerPort": 6379
-                  }
-                ],
                 "env": [
                   {
                     "name": "ALLOW_EMPTY_PASSWORD",
                     "valueFrom": {
                       "configMapKeyRef": {
-                        "name": "redis-foo-env",
-                        "key": "ALLOW_EMPTY_PASSWORD"
+                        "key": "ALLOW_EMPTY_PASSWORD",
+                        "name": "foo-env"
                       }
                     }
                   },
@@ -83,8 +87,8 @@
                     "name": "BAR",
                     "valueFrom": {
                       "configMapKeyRef": {
-                        "name": "redis-bar-env",
-                        "key": "BAR"
+                        "key": "BAR",
+                        "name": "bar-env"
                       }
                     }
                   },
@@ -92,19 +96,28 @@
                     "name": "FOO",
                     "valueFrom": {
                       "configMapKeyRef": {
-                        "name": "redis-bar-env",
-                        "key": "FOO"
+                        "key": "FOO",
+                        "name": "bar-env"
                       }
                     }
+                  }
+                ],
+                "image": "bitnami/redis:latest",
+                "imagePullPolicy": "",
+                "name": "redis",
+                "ports": [
+                  {
+                    "containerPort": 6379
                   }
                 ],
                 "resources": {}
               }
             ],
-            "restartPolicy": "Always"
+            "restartPolicy": "Always",
+            "serviceAccountName": "",
+            "volumes": null
           }
-        },
-        "strategy": {}
+        }
       },
       "status": {}
     },
@@ -112,9 +125,9 @@
       "kind": "ConfigMap",
       "apiVersion": "v1",
       "metadata": {
-        "name": "redis-foo-env",
+        "name": "foo-env",
         "creationTimestamp": null,
-	"labels": {
+        "labels": {
           "io.kompose.service": "redis-foo-env"
         }
       },
@@ -126,9 +139,9 @@
       "kind": "ConfigMap",
       "apiVersion": "v1",
       "metadata": {
-        "name": "redis-bar-env",
+        "name": "bar-env",
         "creationTimestamp": null,
-	"labels": {
+        "labels": {
           "io.kompose.service": "redis-bar-env"
         }
       },

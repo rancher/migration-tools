@@ -17,8 +17,10 @@ limitations under the License.
 package compose
 
 import (
+	"io/ioutil"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/kubernetes/kompose/pkg/kobject"
@@ -29,12 +31,18 @@ import (
 const (
 	// LabelServiceType defines the type of service to be created
 	LabelServiceType = "kompose.service.type"
+	// LabelNodePortPort defines the port value for NodePort service
+	LabelNodePortPort = "kompose.service.nodeport.port"
 	// LabelServiceExpose defines if the service needs to be made accessible from outside the cluster or not
 	LabelServiceExpose = "kompose.service.expose"
 	// LabelServiceExposeTLSSecret  provides the name of the TLS secret to use with the Kubernetes ingress controller
 	LabelServiceExposeTLSSecret = "kompose.service.expose.tls-secret"
 	// LabelControllerType defines the type of controller to be created
 	LabelControllerType = "kompose.controller.type"
+	// LabelImagePullSecret defines a secret name for kubernetes ImagePullSecrets
+	LabelImagePullSecret = "kompose.image-pull-secret"
+	// LabelImagePullPolicy defines Kubernetes PodSpec imagePullPolicy.
+	LabelImagePullPolicy = "kompose.image-pull-policy"
 
 	// ServiceTypeHeadless ...
 	ServiceTypeHeadless = "Headless"
@@ -112,6 +120,40 @@ func handleServiceType(ServiceType string) (string, error) {
 	}
 }
 
+func normalizeContainerNames(svcName string) string {
+	return strings.ToLower(svcName)
+}
+
 func normalizeServiceNames(svcName string) string {
+	re := regexp.MustCompile("[._]")
+	return strings.ToLower(re.ReplaceAllString(svcName, "-"))
+}
+
+func normalizeVolumes(svcName string) string {
 	return strings.Replace(svcName, "_", "-", -1)
+}
+
+func normalizeNetworkNames(netName string) (string, error) {
+	netval := strings.ToLower(netName)
+	regString := ("[^A-Za-z0-9.-]+")
+	reg, err := regexp.Compile(regString)
+	if err != nil {
+		return "", err
+	}
+	netval = reg.ReplaceAllString(netval, "")
+	return netval, nil
+}
+
+// ReadFile read data from file or stdin
+func ReadFile(fileName string) ([]byte, error) {
+	if fileName == "-" {
+		if StdinData == nil {
+			data, err := ioutil.ReadAll(os.Stdin)
+			StdinData = data
+			return data, err
+		}
+		return StdinData, nil
+	}
+	return ioutil.ReadFile(fileName)
+
 }

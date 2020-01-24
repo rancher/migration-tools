@@ -18,14 +18,10 @@ package compose
 
 import (
 	"fmt"
-	"io/ioutil"
 	"reflect"
 	"strings"
 
-	yaml "gopkg.in/yaml.v2"
-
-	"bufio"
-	"os"
+	"gopkg.in/yaml.v2"
 
 	"github.com/docker/libcompose/project"
 	"github.com/fatih/structs"
@@ -33,6 +29,9 @@ import (
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
+
+//StdinData is data bytes read from stdin
+var StdinData []byte
 
 // Compose is docker compose file loader, implements Loader interface
 type Compose struct {
@@ -73,20 +72,16 @@ func checkUnsupportedKey(composeProject *project.Project) []string {
 		"Ulimits":       false,
 		"Net":           false,
 		"Sysctls":       false,
-		"Networks":      false, // there are special checks for Network in checkUnsupportedKey function
-		"Links":         false,
+		//"Networks":    false, // We shall be spporting network now. There are special checks for Network in checkUnsupportedKey function
+		"Links": false,
 	}
 
-	// collect all keys found in project
 	var keysFound []string
 
-	// Root level keys are not yet supported
+	// Root level keys are not yet supported except Network
 	// Check to see if the default network is available and length is only equal to one.
-	// Else, warn the user that root level networks are not supported (yet)
 	if _, ok := composeProject.NetworkConfigs["default"]; ok && len(composeProject.NetworkConfigs) == 1 {
 		log.Debug("Default network found")
-	} else if len(composeProject.NetworkConfigs) > 0 {
-		keysFound = append(keysFound, "root level networks")
 	}
 
 	// Root level volumes are not yet supported
@@ -118,8 +113,6 @@ func checkUnsupportedKey(composeProject *project.Project) []string {
 						if len(serviceConfig.Networks.Networks) == 1 && serviceConfig.Networks.Networks[0].Name == "default" {
 							// this is empty Network definition, skip it
 							continue
-						} else {
-							yamlTagName = "networks"
 						}
 					}
 
@@ -182,8 +175,8 @@ func (c *Compose) LoadFile(files []string) (kobject.KomposeObject, error) {
 			return kobject.KomposeObject{}, err
 		}
 		return komposeObject, nil
-	// Use docker/cli for 3
-	case "3", "3.0", "3.1", "3.2":
+		// Use docker/cli for 3
+	case "3", "3.0", "3.1", "3.2", "3.3", "3.4", "3.5", "3.6", "3.7":
 		komposeObject, err := parseV3(files)
 		if err != nil {
 			return kobject.KomposeObject{}, err
@@ -200,16 +193,10 @@ func getVersionFromFile(file string) (string, error) {
 		Version string `json:"version"` // This affects YAML as well
 	}
 	var version ComposeVersion
-	var loadedFile []byte
-	var err error
-	if file == "-" {
-		data := bufio.NewScanner(os.Stdin)
-		loadedFile = data.Bytes()
-	} else {
-		loadedFile, err = ioutil.ReadFile(file)
-		if err != nil {
-			return "", err
-		}
+	loadedFile, err := ReadFile(file)
+
+	if err != nil {
+		return "", err
 	}
 
 	err = yaml.Unmarshal(loadedFile, &version)

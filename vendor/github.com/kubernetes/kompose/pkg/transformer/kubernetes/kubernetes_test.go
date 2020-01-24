@@ -17,7 +17,10 @@ limitations under the License.
 package kubernetes
 
 import (
+	"encoding/json"
 	"fmt"
+	"k8s.io/kubernetes/pkg/api/unversioned"
+	"k8s.io/kubernetes/pkg/runtime"
 	"reflect"
 	"testing"
 
@@ -42,7 +45,7 @@ func newServiceConfig() kobject.ServiceConfig {
 		WorkingDir:    "dir",
 		Args:          []string{"arg1", "arg2"},
 		VolList:       []string{"/tmp/volume"},
-		Network:       []string{"network1", "network2"}, // not supported
+		Network:       []string{"network1", "network2"}, // supported
 		Labels:        nil,
 		Annotations:   map[string]string{"abc": "def"},
 		CPUQuota:      1, // not supported
@@ -278,15 +281,15 @@ func TestKomposeConvert(t *testing.T) {
 		opt             kobject.ConvertOptions
 		expectedNumObjs int
 	}{
-		// objects generated are deployment, service and pvc
-		"Convert to Deployments (D)":                             {newKomposeObject(), kobject.ConvertOptions{CreateD: true, Replicas: replicas, IsReplicaSetFlag: true}, 3},
-		"Convert to Deployments (D) with v3 replicas":            {newKomposeObject(), kobject.ConvertOptions{CreateD: true}, 3},
-		"Convert to DaemonSets (DS)":                             {newKomposeObject(), kobject.ConvertOptions{CreateDS: true}, 3},
-		"Convert to ReplicationController(RC)":                   {newKomposeObject(), kobject.ConvertOptions{CreateRC: true, Replicas: replicas, IsReplicaSetFlag: true}, 3},
-		"Convert to ReplicationController(RC) with v3 replicas ": {newKomposeObject(), kobject.ConvertOptions{CreateRC: true}, 3},
+		// objects generated are deployment, service nework policies (2) and pvc
+		"Convert to Deployments (D)":                             {newKomposeObject(), kobject.ConvertOptions{CreateD: true, Replicas: replicas, IsReplicaSetFlag: true}, 5},
+		"Convert to Deployments (D) with v3 replicas":            {newKomposeObject(), kobject.ConvertOptions{CreateD: true}, 5},
+		"Convert to DaemonSets (DS)":                             {newKomposeObject(), kobject.ConvertOptions{CreateDS: true}, 5},
+		"Convert to ReplicationController(RC)":                   {newKomposeObject(), kobject.ConvertOptions{CreateRC: true, Replicas: replicas, IsReplicaSetFlag: true}, 5},
+		"Convert to ReplicationController(RC) with v3 replicas ": {newKomposeObject(), kobject.ConvertOptions{CreateRC: true}, 5},
 		// objects generated are deployment, daemonset, ReplicationController, service and pvc
-		"Convert to D, DS, and RC":                  {newKomposeObject(), kobject.ConvertOptions{CreateD: true, CreateDS: true, CreateRC: true, Replicas: replicas, IsReplicaSetFlag: true}, 5},
-		"Convert to D, DS, and RC with v3 replicas": {newKomposeObject(), kobject.ConvertOptions{CreateD: true, CreateDS: true, CreateRC: true}, 5},
+		"Convert to D, DS, and RC":                  {newKomposeObject(), kobject.ConvertOptions{CreateD: true, CreateDS: true, CreateRC: true, Replicas: replicas, IsReplicaSetFlag: true}, 7},
+		"Convert to D, DS, and RC with v3 replicas": {newKomposeObject(), kobject.ConvertOptions{CreateD: true, CreateDS: true, CreateRC: true}, 7},
 		// TODO: add more tests
 	}
 
@@ -306,6 +309,7 @@ func TestKomposeConvert(t *testing.T) {
 		name := "app"
 		labels := transformer.ConfigLabels(name)
 		config := test.komposeObject.ServiceConfigs[name]
+		labelsWithNetwork := transformer.ConfigLabelsWithNetwork(name, config.Network)
 		// Check results
 		for _, obj := range objs {
 			if svc, ok := obj.(*api.Service); ok {
@@ -319,7 +323,7 @@ func TestKomposeConvert(t *testing.T) {
 			}
 			if test.opt.CreateD {
 				if d, ok := obj.(*extensions.Deployment); ok {
-					if err := checkPodTemplate(config, d.Spec.Template, labels); err != nil {
+					if err := checkPodTemplate(config, d.Spec.Template, labelsWithNetwork); err != nil {
 						t.Errorf("%v", err)
 					}
 					if err := checkMeta(config, d.ObjectMeta, name, true); err != nil {
@@ -342,10 +346,47 @@ func TestKomposeConvert(t *testing.T) {
 					}
 					foundD = true
 				}
+
+				if u, ok := obj.(*runtime.Unstructured); ok {
+					if u.GetKind() == "Deployment" {
+						u.SetGroupVersionKind(unversioned.GroupVersionKind{
+							Group:   "extensions",
+							Version: "v1beta1",
+							Kind:    "Deployment",
+						})
+						data, err := json.Marshal(u)
+						if err != nil {
+							t.Errorf("%v", err)
+						}
+						var d extensions.Deployment
+						if err := json.Unmarshal(data, &d); err == nil {
+							if err := checkPodTemplate(config, d.Spec.Template, labelsWithNetwork); err != nil {
+								t.Errorf("%v", err)
+							}
+							if err := checkMeta(config, d.ObjectMeta, name, true); err != nil {
+								t.Errorf("%v", err)
+							}
+							if test.opt.IsReplicaSetFlag {
+								if (int)(d.Spec.Replicas) != replicas {
+									t.Errorf("Expected %d replicas, got %d", replicas, d.Spec.Replicas)
+								}
+							} else {
+
+								if (int)(d.Spec.Replicas) != newServiceConfig().Replicas {
+									t.Errorf("Expected %d replicas, got %d", newServiceConfig().Replicas, d.Spec.Replicas)
+
+								}
+							}
+							foundD = true
+						}
+
+					}
+				}
+
 			}
 			if test.opt.CreateDS {
 				if ds, ok := obj.(*extensions.DaemonSet); ok {
-					if err := checkPodTemplate(config, ds.Spec.Template, labels); err != nil {
+					if err := checkPodTemplate(config, ds.Spec.Template, labelsWithNetwork); err != nil {
 						t.Errorf("%v", err)
 					}
 					if err := checkMeta(config, ds.ObjectMeta, name, true); err != nil {
@@ -356,10 +397,37 @@ func TestKomposeConvert(t *testing.T) {
 					}
 					foundDS = true
 				}
+
+				if u, ok := obj.(*runtime.Unstructured); ok {
+					if u.GetKind() == "DaemonSet" {
+						u.SetGroupVersionKind(unversioned.GroupVersionKind{
+							Group:   "extensions",
+							Version: "v1beta1",
+							Kind:    "DaemonSet",
+						})
+						data, err := json.Marshal(u)
+						if err != nil {
+							t.Errorf("%v", err)
+						}
+						var ds extensions.DaemonSet
+						if err := json.Unmarshal(data, &ds); err == nil {
+							if err := checkPodTemplate(config, ds.Spec.Template, labelsWithNetwork); err != nil {
+								t.Errorf("%v", err)
+							}
+							if err := checkMeta(config, ds.ObjectMeta, name, true); err != nil {
+								t.Errorf("%v", err)
+							}
+							foundDS = true
+						}
+
+					}
+
+				}
+
 			}
 			if test.opt.CreateRC {
 				if rc, ok := obj.(*api.ReplicationController); ok {
-					if err := checkPodTemplate(config, *rc.Spec.Template, labels); err != nil {
+					if err := checkPodTemplate(config, *rc.Spec.Template, labelsWithNetwork); err != nil {
 						t.Errorf("%v", err)
 					}
 					if err := checkMeta(config, rc.ObjectMeta, name, true); err != nil {
@@ -386,7 +454,7 @@ func TestKomposeConvert(t *testing.T) {
 			// TODO: k8s & openshift transformer is now separated; either separate the test or combine the transformer
 			if test.opt.CreateDeploymentConfig {
 				if dc, ok := obj.(*deployapi.DeploymentConfig); ok {
-					if err := checkPodTemplate(config, *dc.Spec.Template, labels); err != nil {
+					if err := checkPodTemplate(config, *dc.Spec.Template, labelsWithNetwork); err != nil {
 						t.Errorf("%v", err)
 					}
 					if err := checkMeta(config, dc.ObjectMeta, name, true); err != nil {
@@ -489,7 +557,7 @@ func TestRestartOnFailure(t *testing.T) {
 func TestInitPodSpec(t *testing.T) {
 	name := "foo"
 	k := Kubernetes{}
-	result := k.InitPodSpec(name, newServiceConfig().Image)
+	result := k.InitPodSpec(name, newServiceConfig().Image, "")
 	if result.Containers[0].Name != "foo" && result.Containers[0].Image != "image" {
 		t.Fatalf("Pod object not found")
 	}

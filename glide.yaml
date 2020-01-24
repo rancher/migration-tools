@@ -8,6 +8,7 @@ import:
   version: v1.4.0
 
 - package: github.com/kubernetes/kompose
+  version: 7dbca5df34d5943f3a06fb79915743ad86a3bc50
   subpackages:
   - pkg/app
   - pkg/kobject
@@ -16,11 +17,7 @@ import:
 - package: gopkg.in/yaml.v2
 
 - package: github.com/sirupsen/logrus
-  version: f006c2ac4710855cf0f916dd6b77acf6b048dc6e
-- package: github.com/Sirupsen/logrus
-  repo: git@github.com:/sirupsen/logrus
-  vcs: git
-  version: master
+  version: 67a7fdcf741f4d5cee82cb9800994ccfd4393ad0
 
 - package: golang.org/x/sys
   version: ebfc5b4631820b793c9010c87fd8fef0f39eb082
@@ -45,7 +42,7 @@ import:
 
 # We use docker/cli to parse v3 of Docker Compose
 - package: github.com/docker/cli
-  version: 9b7656cc05d2878c85dc1252f5813f0ad77d808f
+  version: df6e38b81a94c06ee1e3bd3fd3b17cd9b67c926b
 
 # Docker parser library for image names
 - package: github.com/novln/docker-parser
@@ -94,4 +91,8 @@ import:
 # this makes sure that we are using version that is compatible with both.
 # Glide will show WARN about conflicting rev (in this case it is OK)
 - package: github.com/docker/docker
-  version: 58b1788c81f937bb2aaf1b0077c6b3b23a8397ff
+  version: 8e435b8279f2af3e0cebd73fa9e25ca1bb26004e 
+- package: github.com/gogo/protobuf
+  version: 382325bbbb4d1c850eec1f3ec92a1a16f502d68b
+- package: github.com/imdario/mergo
+  version: 367dccd03f18bf85378395651a9be25c129fb3bf

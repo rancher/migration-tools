@@ -1,4 +1,6 @@
-// Copyright (c) 2013, Vastech SA (PTY) LTD. All rights reserved.
+// Protocol Buffers for Go with Gadgets
+//
+// Copyright (c) 2013, The GoGo Authors. All rights reserved.
 // http://github.com/gogo/protobuf
 //
 // Redistribution and use in source and binary forms, with or without
@@ -126,6 +128,7 @@ func (p *stringer) Generate(file *generator.FileDescriptor) {
 	stringsPkg := p.NewImport("strings")
 	reflectPkg := p.NewImport("reflect")
 	sortKeysPkg := p.NewImport("github.com/gogo/protobuf/sortkeys")
+	protoPkg := p.NewImport("github.com/gogo/protobuf/proto")
 	for _, message := range file.Messages() {
 		if !gogoproto.IsStringer(file.FileDescriptorProto, message.DescriptorProto) {
 			continue
@@ -145,6 +148,47 @@ func (p *stringer) Generate(file *generator.FileDescriptor) {
 		p.P(`return "nil"`)
 		p.Out()
 		p.P(`}`)
+		for _, field := range message.Field {
+			if p.IsMap(field) || !field.IsRepeated() {
+				continue
+			}
+			if (field.IsMessage() && !gogoproto.IsCustomType(field)) || p.IsGroup(field) {
+				nullable := gogoproto.IsNullable(field)
+				desc := p.ObjectNamed(field.GetTypeName())
+				msgname := p.TypeName(desc)
+				msgnames := strings.Split(msgname, ".")
+				typeName := msgnames[len(msgnames)-1]
+				fieldMessageDesc := file.GetMessage(msgname)
+				gogoStringer := false
+				if fieldMessageDesc != nil {
+					gogoStringer = gogoproto.IsStringer(file.FileDescriptorProto, fieldMessageDesc)
+				}
+				fieldname := p.GetFieldName(message, field)
+				stringfunc := fmtPkg.Use() + `.Sprintf("%v", f)`
+				if gogoStringer {
+					stringfunc = `f.String()`
+				}
+				repeatedName := `repeatedStringFor` + fieldname
+				if nullable {
+					p.P(repeatedName, ` := "[]*`, typeName, `{"`)
+				} else {
+					p.P(repeatedName, ` := "[]`, typeName, `{"`)
+				}
+
+				p.P(`for _, f := range `, `this.`, fieldname, ` {`)
+				p.In()
+				if nullable {
+					p.P(repeatedName, " += ", stringsPkg.Use(), `.Replace(`, stringfunc, `, "`, typeName, `","`, msgname, `"`, ", 1)", ` + ","`)
+				} else if gogoStringer {
+					p.P(repeatedName, " += ", stringsPkg.Use(), `.Replace(`, stringsPkg.Use(), `.Replace(`, stringfunc, `, "`, typeName, `","`, msgname, `"`, ", 1),`&`,``,1)", ` + ","`)
+				} else {
+					p.P(repeatedName, " += ", stringfunc, ` + ","`)
+				}
+				p.Out()
+				p.P(`}`)
+				p.P(repeatedName, ` += "}"`)
+			}
+		}
 		for _, field := range message.Field {
 			if !p.IsMap(field) {
 				continue
@@ -200,17 +244,27 @@ func (p *stringer) Generate(file *generator.FileDescriptor) {
 			} else if p.IsMap(field) {
 				mapName := `mapStringFor` + fieldname
 				p.P("`", fieldname, ":`", ` + `, mapName, " + `,", "`,")
-			} else if field.IsMessage() || p.IsGroup(field) {
+			} else if (field.IsMessage() && !gogoproto.IsCustomType(field)) || p.IsGroup(field) {
 				desc := p.ObjectNamed(field.GetTypeName())
 				msgname := p.TypeName(desc)
 				msgnames := strings.Split(msgname, ".")
 				typeName := msgnames[len(msgnames)-1]
-				if nullable {
-					p.P("`", fieldname, ":`", ` + `, stringsPkg.Use(), `.Replace(`, fmtPkg.Use(), `.Sprintf("%v", this.`, fieldname, `), "`, typeName, `","`, msgname, `"`, ", 1) + `,", "`,")
+				fieldMessageDesc := file.GetMessage(msgname)
+				gogoStringer := false
+				if fieldMessageDesc != nil {
+					gogoStringer = gogoproto.IsStringer(file.FileDescriptorProto, fieldMessageDesc)
+				}
+				stringfunc := fmtPkg.Use() + `.Sprintf("%v", this.` + fieldname + `)`
+				if gogoStringer {
+					stringfunc = `this.` + fieldname + `.String()`
+				}
+				if nullable && !repeated {
+					p.P("`", fieldname, ":`", ` + `, stringsPkg.Use(), `.Replace(`, stringfunc, `, "`, typeName, `","`, msgname, `"`, ", 1) + `,", "`,")
 				} else if repeated {
-					p.P("`", fieldname, ":`", ` + `, stringsPkg.Use(), `.Replace(`, stringsPkg.Use(), `.Replace(`, fmtPkg.Use(), `.Sprintf("%v", this.`, fieldname, `), "`, typeName, `","`, msgname, `"`, ", 1),`&`,``,1) + `,", "`,")
+					repeatedName := `repeatedStringFor` + fieldname
+					p.P("`", fieldname, ":`", ` + `, repeatedName, " + `,", "`,")
 				} else {
-					p.P("`", fieldname, ":`", ` + `, stringsPkg.Use(), `.Replace(`, stringsPkg.Use(), `.Replace(this.`, fieldname, `.String(), "`, typeName, `","`, msgname, `"`, ", 1),`&`,``,1) + `,", "`,")
+					p.P("`", fieldname, ":`", ` + `, stringsPkg.Use(), `.Replace(`, stringsPkg.Use(), `.Replace(`, stringfunc, `, "`, typeName, `","`, msgname, `"`, ", 1),`&`,``,1) + `,", "`,")
 				}
 			} else {
 				if nullable && !repeated && !proto3 {
@@ -222,9 +276,9 @@ func (p *stringer) Generate(file *generator.FileDescriptor) {
 		}
 		if message.DescriptorProto.HasExtension() {
 			if gogoproto.HasExtensionsMap(file.FileDescriptorProto, message.DescriptorProto) {
-				p.P("`XXX_extensions:` + proto.StringFromExtensionsMap(this.XXX_extensions) + `,`,")
+				p.P("`XXX_InternalExtensions:` + ", protoPkg.Use(), ".StringFromInternalExtension(this) + `,`,")
 			} else {
-				p.P("`XXX_extensions:` + proto.StringFromExtensionsBytes(this.XXX_extensions) + `,`,")
+				p.P("`XXX_extensions:` + ", protoPkg.Use(), ".StringFromExtensionsBytes(this.XXX_extensions) + `,`,")
 			}
 		}
 		if gogoproto.HasUnrecognized(file.FileDescriptorProto, message.DescriptorProto) {

@@ -1,0 +1,93 @@
+{
+  "kind": "List",
+  "apiVersion": "v1",
+  "metadata": {},
+  "items": [
+    {
+      "kind": "Service",
+      "apiVersion": "v1",
+      "metadata": {
+        "name": "wordpress",
+        "creationTimestamp": null,
+        "labels": {
+          "io.kompose.service": "wordpress"
+        },
+        "annotations": {
+          "kompose.cmd": "%CMD%",
+          "kompose.version": "%VERSION%"
+        }
+      },
+      "spec": {
+        "ports": [
+          {
+            "name": "8080",
+            "port": 8080,
+            "targetPort": 80
+          }
+        ],
+        "selector": {
+          "io.kompose.service": "wordpress"
+        },
+        "type": "NodePort"
+      },
+      "status": {
+        "loadBalancer": {}
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "annotations": {
+          "kompose.cmd": "%CMD%",
+          "kompose.version": "%VERSION%"
+        },
+        "creationTimestamp": null,
+        "labels": {
+          "io.kompose.service": "wordpress"
+        },
+        "name": "wordpress"
+      },
+      "spec": {
+        "replicas": 2,
+        "selector": {
+          "matchLabels": {
+            "io.kompose.service": "wordpress"
+          }
+        },
+        "strategy": {},
+        "template": {
+          "metadata": {
+            "annotations": {
+              "kompose.cmd": "%CMD%",
+              "kompose.version": "%VERSION%"
+            },
+            "creationTimestamp": null,
+            "labels": {
+              "io.kompose.service": "wordpress"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "image": "wordpress",
+                "imagePullPolicy": "",
+                "name": "wordpress",
+                "ports": [
+                  {
+                    "containerPort": 80
+                  }
+                ],
+                "resources": {}
+              }
+            ],
+            "restartPolicy": "Always",
+            "serviceAccountName": "",
+            "volumes": null
+          }
+        }
+      },
+      "status": {}
+    }
+  ]
+}

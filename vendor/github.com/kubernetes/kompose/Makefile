@@ -26,7 +26,7 @@ all: bin
 
 .PHONY: bin
 bin:
-	go build ${BUILD_FLAGS} -o kompose main.go
+	CGO_ENABLED=0 go build ${BUILD_FLAGS} -o kompose main.go
 
 .PHONY: install
 install:
@@ -35,7 +35,7 @@ install:
 # kompile kompose for multiple platforms
 .PHONY: cross
 cross:
-	gox -osarch="darwin/amd64 linux/amd64 linux/arm windows/amd64" -output="bin/kompose-{{.OS}}-{{.Arch}}" $(BUILD_FLAGS)
+	CGO_ENABLED=0 gox -osarch="darwin/amd64 linux/amd64 linux/arm windows/amd64" -output="bin/kompose-{{.OS}}-{{.Arch}}" $(BUILD_FLAGS)
 
 .PHONY: clean
 clean:
@@ -49,10 +49,10 @@ test-unit:
 # Run unit tests and collect coverage
 .PHONY: test-unit-cover
 test-unit-cover:
-	# First install packages that are dependencies of the test. 
+	# First install packages that are dependencies of the test.
 	go test -short -i -race -cover $(PKGS)
 	# go test doesn't support colleting coverage across multiple packages,
-	# generate go test commands using go list and run go test for every package separately 
+	# generate go test commands using go list and run go test for every package separately
 	go list -f '"go test -short -race -cover -v -coverprofile={{.Dir}}/.coverprofile {{.ImportPath}}"' github.com/kubernetes/kompose/...  | grep -v "vendor" | xargs -L 1 -P4 sh -c
 
 
@@ -103,7 +103,7 @@ test-dep:
 	go get github.com/modocache/gover
 	go get github.com/Masterminds/glide
 	go get github.com/sgotti/glide-vc
-	go get github.com/golang/lint/golint
+	go get golang.org/x/lint/golint
 	go get github.com/mitchellh/gox
 
 
@@ -115,7 +115,7 @@ test-image:
 # run all test locally in docker image (image can be build by by build-test-image target)
 .PHONY: test-container
 test-container:
-	docker run -v `pwd`:/opt/tmp/kompose:ro -it $(TEST_IMAGE) 
+	docker run -v `pwd`:/opt/tmp/kompose:ro -it $(TEST_IMAGE)
 
 # Update vendoring
 # Vendoring is a bit messy right now
@@ -123,7 +123,11 @@ test-container:
 vendor-update:
 	glide update --strip-vendor
 	glide-vc --only-code --no-tests
-	find ./vendor/github.com/docker/distribution -type f -exec sed -i 's/Sirupsen/sirupsen/g' {} \;        
+	find ./vendor/github.com/docker/distribution -type f -exec sed -i 's/Sirupsen/sirupsen/g' {} \;
+	rm -rf vendor/github.com/Sirupsen
+
+	# a field does not has json tag defined.
+	cp script/vendor-sync/types.go.txt vendor/k8s.io/kubernetes/pkg/api/types.go
 
 
 .PHONY: test-k8s

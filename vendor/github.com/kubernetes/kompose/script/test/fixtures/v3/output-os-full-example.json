@@ -153,6 +153,9 @@
         "name": "foo",
         "creationTimestamp": null,
         "labels": {
+          "io.kompose.network/other-network": "true",
+          "io.kompose.network/other-other-network": "true",
+          "io.kompose.network/some-network": "true",
           "io.kompose.service": "foo"
         }
       },
@@ -226,9 +229,6 @@
             ],
             "workingDir": "/code",
             "ports": [
-              {
-                "containerPort": 3000
-              },
               {
                 "containerPort": 3000
               },
